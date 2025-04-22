@@ -1,0 +1,6 @@
+name: test-pod
+cpu: 2
+memory: 256MB
+main: run.py
+sidecars:
+  - logging: log.sh

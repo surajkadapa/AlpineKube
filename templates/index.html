@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Node Registry</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f8f9fa;
+            color: #333;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .container {
+            width: 100%;
+            max-width: 800px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+        }
+        .button{
+            color: aqua;
+        }
+        .form-container {
+            width: 100%;
+            max-width: 800px;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0px 4px 10px rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 50px;
+        }
+        h2 {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 12px;
+            text-align: left;
+        }
+        th {
+            background-color: #007bff;
+            color: white;
+        }
+        tr:not(:last-child) {
+            border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+        }
+        tr:hover {
+            background-color: #f1f1f1;
+        }
+        .active {
+            font-weight: bold;
+            color: blue;
+        }
+        .inactive {
+            font-weight: bold;
+            color: red;
+        }
+        .terminal-container {
+            display: none;
+            margin-top: 10px;
+        }
+        iframe {
+            width: 100%;
+            height: 300px;
+            border: none;
+        }
+        #upload-status {
+            opacity: 0;
+            transition: opacity 0.5s ease-in-out, transform 0.5s ease;
+            transform: translateY(-10px);
+            text-align: center;
+        }
+
+        #upload-status.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    </style>
+</head>
+<body>
+    <div class="form-container">
+        <h2>Create Node</h2>
+        <div class="form-group">
+            <input type="number" id="cpu-input" placeholder="CPUs" min="1">
+            <input type="number" id="memory-input" placeholder="Memory (MB)" min="128">
+            <button onclick="createNode()">Create ⭍</button>
+        </div>
+    </div>
+    <div class="form-container">
+        <h2>Upload Pod</h2>
+        <form id="pod-upload-form" enctype="multipart/form-data">
+            <input type="file" id="pod-file" name="pod_file" accept=".pod" required>
+            <input type="file" id="zip-file" name="zip_file" accept=".zip" required>
+            <button type="submit">Upload ⏆</button>
+        </form>
+        <div id="upload-status" style="margin-top: 10px; font-weight: bold;"></div>
+    </div>
+    <div class="container">
+        <h2>Registered Nodes</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Node ID</th>
+                    <th>IP Address</th>
+                    <th>CPU Cores</th>
+                    <th>RAM (MB)</th>
+                    <th>Pods</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody id="node-table">
+                <!-- Dynamic content will be loaded here -->
+            </tbody>
+        </table>
+    </div>
+    <script>
+        let openTerminals = {}; // Store currently open terminals
+
+        async function fetchNodes() {
+            const response = await fetch('/nodes');
+            const nodes = await response.json();
+            const tableBody = document.getElementById('node-table');
+            
+            nodes.forEach(node => {
+                const existingRow = document.getElementById(`row-${node.node_ip}`);
+                if (existingRow) {
+                    existingRow.innerHTML = `
+                        <td><a href="#" onclick="toggleTerminal(event, '${node.node_ip}')">${node.node_id}</a></td>
+                        <td>${node.node_ip}</td>
+                        <td>${node.cpus}</td>
+                        <td>${node.memory}</td>
+                        <td>${node.pod_count}</td>
+                        <td class="${node.active ? 'active' : 'inactive'}">${node.active ? 'ACTIVE' : 'INACTIVE'}</td>
+                    `;
+                } else {
+                    const row = document.createElement('tr');
+                    row.id = `row-${node.node_ip}`;
+                    row.innerHTML = `
+                        <td><a href="#" onclick="toggleTerminal(event, '${node.node_ip}')">${node.node_id}</a></td>
+                        <td>${node.node_ip}</td>
+                        <td>${node.cpus}</td>
+                        <td>${node.memory}</td>
+                        <td>${node.pod_count}</td>
+                        <td class="${node.active ? 'active' : 'inactive'}">${node.active ? 'ACTIVE' : 'INACTIVE'}</td>
+                    `;
+                    tableBody.appendChild(row);
+
+                    const terminalRow = document.createElement('tr');
+                    terminalRow.id = `terminal-row-${node.node_ip}`;
+                    terminalRow.classList.add('terminal-container');
+                    terminalRow.innerHTML = `
+                        <td colspan="6">
+                            <iframe src="" id="terminal-${node.node_ip}"></iframe>
+                        </td>
+                    `;
+                    tableBody.appendChild(terminalRow);
+                }
+
+                if (openTerminals[node.node_ip]) {
+                    document.getElementById(`terminal-row-${node.node_ip}`).style.display = 'table-row';
+                }
+            });
+        }
+
+        function toggleTerminal(event, ip) {
+            event.preventDefault();
+            const terminalRow = document.getElementById(`terminal-row-${ip}`);
+            const iframe = document.getElementById(`terminal-${ip}`);
+
+            if (terminalRow.style.display === 'table-row') {
+                terminalRow.style.display = 'none';
+                delete openTerminals[ip];
+            } else {
+                iframe.src = `http://${ip}:7681/`;
+                terminalRow.style.display = 'table-row';
+                openTerminals[ip] = true;
+            }
+        }
+
+        function createNode() {
+            const cpus = document.getElementById('cpu-input').value;
+            const memory = document.getElementById('memory-input').value;
+
+            if (!cpus || !memory) {
+                alert('Please enter both CPU and Memory values.');
+                return;
+            }
+
+            fetch('/create-node', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cpus, memory })
+            }).then(response => {
+                if (response.ok) {
+                    alert('Node creation request sent.');
+                    fetchNodes();
+                } else {
+                    alert('Failed to create node.');
+                }
+            }).catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred.');
+            });
+        }
+        fetchNodes();
+        setInterval(fetchNodes, 3000);
+        document.getElementById('pod-upload-form').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const form = new FormData();
+            const podFile = document.getElementById('pod-file').files[0];
+            const zipFile = document.getElementById('zip-file').files[0];
+
+            const statusDiv = document.getElementById('upload-status');
+
+            if (!podFile || !zipFile) {
+                statusDiv.textContent = "Please select both .pod and .zip files.";
+                statusDiv.style.color = "red";
+                statusDiv.classList.add("show");
+                setTimeout(() => statusDiv.classList.remove("show"), 3000);
+                return;
+            }
+
+            form.append('pod_file', podFile);
+            form.append('zip_file', zipFile);
+
+            try {
+                const res = await fetch('/upload-pod', {
+                    method: 'POST',
+                    body: form
+                });
+                const result = await res.json();
+
+                statusDiv.textContent = result.message || "Upload complete.";
+                statusDiv.style.color = result.message.includes("successful") ? "green" : "red";
+                statusDiv.classList.add("show");
+                setTimeout(() => statusDiv.classList.remove("show"), 3000);
+            } catch (err) {
+                console.error(err);
+                statusDiv.textContent = "Upload failed due to network/server error.";
+                statusDiv.style.color = "red";
+                statusDiv.classList.add("show");
+                setTimeout(() => statusDiv.classList.remove("show"), 3000);
+            }
+        });
+    </script>
+</body>
+</html>
